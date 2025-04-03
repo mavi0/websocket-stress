@@ -1,9 +1,11 @@
 name: Docker Publish CI
 
 on:
+  workflow_dispatch:
+
   push:
     branches:
-      - main # Or your default branch
+      - master # Or your default branch
 
 jobs:
   build-and-push:
