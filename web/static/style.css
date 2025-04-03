@@ -1,0 +1,37 @@
+/* Additional styles for WebSocket Stress Test */
+body {
+    background-color: #f4f4f4;
+}
+
+h1 {
+    color: #333;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+}
+
+h2 {
+    color: #444;
+}
+
+.stat-box {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.stat-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+#messages div {
+    padding: 5px;
+    border-bottom: 1px solid #eee;
+}
+
+#messages div:nth-child(odd) {
+    background-color: #f9f9f9;
+}
+
+.btn {
+    transition: background-color 0.3s ease;
+} 

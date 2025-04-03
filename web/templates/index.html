@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Stress Test</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        #messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 20px;
+            background-color: #f9f9f9;
+        }
+        .stats {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .stat-box {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            width: 30%;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .btn {
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Stress Test</h1>
+    
+    <div id="status" class="disconnected">Disconnected</div>
+    <button id="reconnect" class="btn">Reconnect</button>
+    
+    <div class="stats">
+        <div class="stat-box">
+            <div>Connection Uptime</div>
+            <div id="uptime" class="stat-value">0s</div>
+        </div>
+        <div class="stat-box">
+            <div>Messages Received</div>
+            <div id="msg-count" class="stat-value">0</div>
+        </div>
+        <div class="stat-box">
+            <div>Connected Clients</div>
+            <div id="client-count" class="stat-value">0</div>
+        </div>
+        <div class="stat-box">
+            <div>Connection Drops</div>
+            <div id="drop-count" class="stat-value">0</div>
+        </div>
+    </div>
+
+    <h2>Messages</h2>
+    <div id="messages"></div>
+
+    <script>
+        let socket;
+        let messageCount = 0;
+        let connectionStartTime = null;
+        let uptimeInterval;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        let dropCount = 0;
+        
+        function connect() {
+            const statusDiv = document.getElementById('status');
+            const messagesDiv = document.getElementById('messages');
+            const msgCountDiv = document.getElementById('msg-count');
+            const clientCountDiv = document.getElementById('client-count');
+            const uptimeDiv = document.getElementById('uptime');
+            const dropCountDiv = document.getElementById('drop-count');
+            
+            // Close existing socket if any
+            if (socket) {
+                socket.close();
+            }
+            
+            // Use the current host with WebSocket protocol
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                statusDiv.textContent = 'Connected';
+                statusDiv.className = 'connected';
+                connectionStartTime = new Date();
+                reconnectAttempts = 0;
+                
+                // Start tracking uptime
+                clearInterval(uptimeInterval);
+                uptimeInterval = setInterval(function() {
+                    if (connectionStartTime) {
+                        const uptime = Math.floor((new Date() - connectionStartTime) / 1000);
+                        uptimeDiv.textContent = formatUptime(uptime);
+                    }
+                }, 1000);
+                
+                // Add connection message
+                const item = document.createElement('div');
+                item.textContent = `[${new Date().toLocaleTimeString()}] Connected to server`;
+                messagesDiv.appendChild(item);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+            
+            socket.onmessage = function(event) {
+                messageCount++;
+                msgCountDiv.textContent = messageCount;
+                
+                const rawMessage = event.data;
+                let displayMessage = rawMessage;
+
+                // Check if the message contains the payload marker
+                const payloadMarker = "Payload size:";
+                const headerEndIndex = rawMessage.indexOf('\n');
+                if (headerEndIndex > -1 && rawMessage.includes(payloadMarker)) {
+                    // Extract just the header part before the newline
+                    displayMessage = rawMessage.substring(0, headerEndIndex);
+
+                    // Extract client count from the header
+                    const countMatch = displayMessage.match(/Connected clients: (\d+)/);
+                    if (countMatch && countMatch[1]) {
+                        clientCountDiv.textContent = countMatch[1];
+                    }
+                } else {
+                    // If it's not the large payload message, check for client count separately
+                    if (rawMessage.includes('Connected clients:')) {
+                         const countMatch = rawMessage.match(/Connected clients: (\d+)/);
+                         if (countMatch && countMatch[1]) {
+                             clientCountDiv.textContent = countMatch[1];
+                         }
+                     }
+                }
+                
+                // Add the (potentially truncated) message to the messages div
+                const item = document.createElement('div');
+                item.textContent = `[${new Date().toLocaleTimeString()}] ${displayMessage}`;
+                messagesDiv.appendChild(item);
+                
+                // Auto-scroll to the bottom
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+            
+            socket.onclose = function(event) {
+                statusDiv.textContent = 'Disconnected';
+                statusDiv.className = 'disconnected';
+                clearInterval(uptimeInterval);
+                
+                // Increment drop count if it wasn't a clean close (code 1000)
+                if (event.code !== 1000) {
+                    dropCount++;
+                    dropCountDiv.textContent = dropCount;
+                }
+                
+                // Add disconnection message
+                const item = document.createElement('div');
+                item.textContent = `[${new Date().toLocaleTimeString()}] Disconnected from server`;
+                item.style.color = '#a94442';
+                messagesDiv.appendChild(item);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+                // Auto-reconnect if not manually closed
+                if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    const item = document.createElement('div');
+                    item.textContent = `[${new Date().toLocaleTimeString()}] Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`;
+                    messagesDiv.appendChild(item);
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    
+                    setTimeout(connect, 3000); // Reconnect after 3 seconds
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                const item = document.createElement('div');
+                item.textContent = `[${new Date().toLocaleTimeString()}] Error: Connection error`;
+                item.style.color = '#a94442';
+                messagesDiv.appendChild(item);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            };
+        }
+        
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const remainingSeconds = seconds % 60;
+            
+            let result = '';
+            if (hours > 0) result += `${hours}h `;
+            if (minutes > 0 || hours > 0) result += `${minutes}m `;
+            result += `${remainingSeconds}s`;
+            
+            return result;
+        }
+        
+        // Initialize connection
+        document.addEventListener('DOMContentLoaded', connect);
+        
+        // Reconnect button
+        document.getElementById('reconnect').addEventListener('click', function() {
+            reconnectAttempts = 0; // Reset reconnect attempts
+            connect();
+        });
+    </script>
+</body>
+</html> 
